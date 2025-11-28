@@ -108,8 +108,8 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
         uint16 version;
         bytes32 mrenclave;
         bytes32 mrsigner;
-        bytes32 reportDataHash;
-        uint256 quoteTimestamp;
+        bytes32 validatorBinding;   // First 32 bytes of report data
+        bytes32 reportDataHash;     // Hash of full 64-byte report data
         uint32 signatureLength;
     }
 
@@ -288,19 +288,19 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Direct quote submission with on-chain parsing (higher gas)
+     * @notice Direct quote submission with on-chain parsing
+     * @dev PRODUCTION NOTE: Use submitRelayerAttestation for production. 
+     *      Direct submission requires trusted timestamp oracle integration.
      * @param validator Address of the validator being attested
      * @param quote Raw DCAP quote from SGX Quoting Enclave
      * @param chainId Chain identifier (1=Arbitrum, 2=Solana, 3=TON)
      * @param nonce Replay protection nonce
-     * @param quoteTimestamp Timestamp when quote was generated
      */
     function submitDirectAttestation(
         address validator,
         bytes calldata quote,
         uint8 chainId,
-        uint256 nonce,
-        uint256 quoteTimestamp
+        uint256 nonce
     ) external whenNotPaused nonReentrant returns (bool) {
         // Validate inputs
         if (validator == address(0)) revert ZeroAddress();
@@ -310,13 +310,8 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
         // Parse and validate quote structure
         ParsedQuote memory parsed = _parseQuote(quote);
         
-        // Verify quote version
+        // Verify quote version (must be v3 or higher for DCAP)
         if (parsed.version < 3) revert InvalidQuoteVersion();
-        
-        // Verify quote freshness
-        if (block.timestamp > quoteTimestamp + MAX_QUOTE_AGE) {
-            revert QuoteTooOld();
-        }
         
         // Compute quote hash for replay protection
         bytes32 quoteHash = keccak256(quote);
@@ -326,13 +321,10 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
         if (!approvedEnclaves[parsed.mrenclave]) revert EnclaveNotApproved();
         if (!approvedSigners[parsed.mrsigner]) revert SignerNotApproved();
         
-        // Verify report data binding
-        bytes32 expectedReportDataHash = keccak256(abi.encodePacked(
-            validator,
-            chainId,
-            nonce
-        ));
-        if (parsed.reportDataHash != expectedReportDataHash) {
+        // Verify report data binding (first 32 bytes of report data = validator binding)
+        // Report data layout: [validator_binding_hash(32)] [chain_id(1)] [nonce(8)] [reserved(23)]
+        bytes32 expectedBinding = keccak256(abi.encodePacked(validator, chainId, nonce));
+        if (parsed.validatorBinding != expectedBinding) {
             revert InvalidReportData();
         }
         
@@ -474,6 +466,13 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
     /**
      * @notice Parse raw DCAP quote into structured data
      * @dev Follows Intel SGX DCAP Quote v3 format
+     *
+     * Quote Layout:
+     * - Header (48 bytes): version, att_key_type, tee_type, qe_svn, pce_svn, qe_vendor_id, user_data
+     * - ISV Enclave Report (384 bytes): cpu_svn, misc_select, attributes, MRENCLAVE, MRSIGNER, etc.
+     * - Report Data (64 bytes at offset 368): [validator_binding(32)][metadata(32)]
+     * - Signature Data Length (4 bytes)
+     * - Signature Data (variable)
      */
     function _parseQuote(bytes calldata quote) internal pure returns (ParsedQuote memory) {
         // Validate minimum size
@@ -490,7 +489,12 @@ contract TrinityShieldVerifier is Ownable, ReentrancyGuard {
         // Parse MRSIGNER (32 bytes at offset 176)
         parsed.mrsigner = bytes32(quote[MRSIGNER_OFFSET:MRSIGNER_OFFSET + 32]);
         
-        // Parse Report Data and compute hash (64 bytes at offset 368)
+        // Parse Report Data (64 bytes at offset 368)
+        // First 32 bytes = validator binding hash (keccak256(validator, chainId, nonce))
+        // This matches the enclave's build_report_data() function
+        parsed.validatorBinding = bytes32(quote[REPORT_DATA_OFFSET:REPORT_DATA_OFFSET + 32]);
+        
+        // Hash of full report data for storage
         parsed.reportDataHash = keccak256(quote[REPORT_DATA_OFFSET:REPORT_DATA_OFFSET + 64]);
         
         // Parse signature data length (little-endian uint32 at offset 432)

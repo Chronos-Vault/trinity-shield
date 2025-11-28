@@ -1,0 +1,201 @@
+# Trinity Shield™ Gramine Manifest Template
+# 
+# This manifest configures the Gramine runtime for SGX deployment.
+# Gramine allows running unmodified Linux applications inside SGX enclaves.
+#
+# Usage:
+#   gramine-manifest -Dlog_level=error trinity-shield.manifest.template trinity-shield.manifest
+#   gramine-sgx-sign --manifest trinity-shield.manifest --output trinity-shield.manifest.sgx
+#   gramine-sgx trinity-shield
+
+# Gramine-specific loader configuration
+loader.entrypoint = "file:{{ gramine.libos }}"
+libos.entrypoint = "/trinity-shield"
+
+# Environment variables
+loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}"
+loader.env.PATH = "/bin:/usr/bin"
+loader.env.HOME = "/home/trinity"
+loader.env.RUST_BACKTRACE = "1"
+loader.env.RUST_LOG = "info"
+
+# Trinity Shield specific environment
+loader.env.TRINITY_CHAIN_ID = "{{ chain_id }}"
+loader.env.TRINITY_VALIDATOR_ID = "{{ validator_id }}"
+loader.env.TRINITY_RPC_ENDPOINT = "{{ rpc_endpoint }}"
+
+# Logging level (error, warning, debug, trace, all)
+loader.log_level = "{{ log_level }}"
+
+# Security: Disable insecure options in production
+loader.insecure__use_cmdline_argv = false
+loader.insecure__use_host_env = false
+
+# Enable protected files (integrity-protected and optionally encrypted)
+sgx.protected_files_key = "{{ protected_files_key }}"
+
+# SGX enclave configuration
+sgx.enclave_size = "1G"
+sgx.max_threads = 16
+
+# Enable SGX remote attestation (DCAP)
+sgx.remote_attestation = "dcap"
+
+# MRENCLAVE is computed from enclave contents
+# This value is logged during gramine-sgx-sign
+# sgx.mrenclave = computed
+
+# MRSIGNER is derived from the signing key
+# Used for upgrades with MRSIGNER sealing policy
+# sgx.mrsigner = computed
+
+# ISV Product ID and SVN for versioning
+sgx.isvprodid = 1
+sgx.isvsvn = 1
+
+# Debug mode (set to false for production!)
+sgx.debug = {{ debug_mode }}
+
+# Trusted files (integrity-verified before loading)
+# These are measured into MRENCLAVE
+sgx.trusted_files = [
+    "file:{{ gramine.libos }}",
+    "file:/trinity-shield",
+    "file:{{ gramine.runtimedir }}/",
+    "file:{{ arch_libdir }}/",
+    "file:/lib/x86_64-linux-gnu/",
+    "file:/usr/{{ arch_libdir }}/",
+]
+
+# Allowed files (can be read/written, not integrity-protected)
+sgx.allowed_files = [
+    "file:/dev/urandom",
+    "file:/etc/localtime",
+    "file:/etc/nsswitch.conf",
+    "file:/etc/host.conf",
+    "file:/etc/hosts",
+    "file:/etc/resolv.conf",
+    "file:/etc/gai.conf",
+]
+
+# Protected files (encrypted with sgx.protected_files_key)
+# Validator keys and state are stored here
+sgx.protected_files = [
+    "file:/data/validator_key.sealed",
+    "file:/data/consensus_state.sealed",
+    "file:/data/htlc_state.sealed",
+    "file:/data/vault_state.sealed",
+]
+
+# File system mounts
+fs.mounts = [
+    { path = "/lib", uri = "file:{{ gramine.runtimedir }}" },
+    { path = "/bin", uri = "file:/bin" },
+    { path = "/usr", uri = "file:/usr" },
+    { path = "/etc", uri = "file:/etc" },
+    { path = "/data", uri = "file:{{ data_dir }}", type = "encrypted" },
+    { path = "/tmp", uri = "file:/tmp", type = "tmpfs" },
+    { path = "/dev/attestation", uri = "dev:/dev/attestation" },
+]
+
+# System call filtering (whitelist)
+sys.stack.size = "2M"
+sys.brk.max_size = "32M"
+sys.insecure__allow_eventfd = true
+
+# Network configuration (for RPC communication)
+sgx.allowed_files = [
+    "file:/etc/ssl/certs/ca-certificates.crt",
+]
+
+# Thread synchronization (for multi-threaded enclave)
+sgx.thread_num = 16
+sgx.use_exitless = true
+
+# Memory management
+loader.pal_internal_mem_size = "128M"
+
+# Enable ASLR inside enclave
+loader.aslr = true
+
+# Edmm (Enclave Dynamic Memory Management) - for SGX2
+sgx.edmm_enable = {{ edmm_enable }}
+
+# CPU features required
+sgx.require_avx = true
+sgx.require_avx512 = false
+sgx.require_mpx = false
+
+# ============================================================================
+# DCAP Attestation Configuration
+# ============================================================================
+
+# Path to DCAP libraries
+sgx.dcap.library = "{{ dcap_library }}"
+
+# Quote provider configuration
+sgx.quote_provider = {
+    type = "{{ quote_provider_type }}",
+    url = "{{ pccs_url }}",
+}
+
+# Attestation freshness (max age in seconds)
+sgx.attestation_expiry = 86400  # 24 hours
+
+# ============================================================================
+# Trinity Protocol Specific Settings
+# ============================================================================
+
+# Chain-specific configuration
+[chain.arbitrum]
+chain_id = 1
+key_type = "secp256k1"
+consensus_threshold = 2
+attestation_interval = 3600
+
+[chain.solana]
+chain_id = 2
+key_type = "ed25519"
+consensus_threshold = 2
+attestation_interval = 3600
+high_frequency = true
+
+[chain.ton]
+chain_id = 3
+key_type = "dilithium5"
+consensus_threshold = 3  # Emergency requires all 3
+attestation_interval = 3600
+quantum_safe = true
+emergency_delay = 172800  # 48 hours
+
+# ============================================================================
+# Lean Proof Verification
+# ============================================================================
+
+# Paths to Lean-proven theorem specifications
+lean.theorems = [
+    "formal-proofs/Consensus/TrinityProtocol.lean",
+    "formal-proofs/Security/ByzantineFaultTolerance.lean",
+    "formal-proofs/Contracts/ChronosVault.lean",
+    "formal-proofs/Contracts/HTLCChronosBridge.lean",
+]
+
+# Theorem enforcement mode (strict = abort on violation)
+lean.enforcement = "strict"
+
+# ============================================================================
+# Monitoring and Logging
+# ============================================================================
+
+# Metrics endpoint (exposed via untrusted code)
+metrics.enabled = true
+metrics.port = 9090
+
+# Health check configuration
+health.enabled = true
+health.interval = 30
+
+# Audit logging
+audit.enabled = true
+audit.file = "/data/audit.log"
+audit.events = ["key_generation", "signing", "attestation", "consensus_vote"]

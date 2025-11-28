@@ -1,0 +1,319 @@
+/*
+ * Trinity Shield™ Enclave Definition Language (EDL)
+ * Layer 8 of the Mathematical Defense Layer
+ * 
+ * This file defines the trusted/untrusted boundary for SGX enclaves.
+ * All cross-boundary calls must be explicitly declared here.
+ */
+
+enclave {
+    from "sgx_tstdc.edl" import *;
+    from "sgx_pthread.edl" import *;
+    
+    include "sgx_report.h"
+    include "sgx_quote.h"
+    include "sgx_key.h"
+    
+    /* Trusted functions (called from untrusted code INTO enclave) */
+    trusted {
+        /*
+         * Initialize the Trinity Shield enclave
+         * @param chain_id: 1=Arbitrum, 2=Solana, 3=TON
+         * @param config_sealed: Previously sealed configuration (or NULL for fresh init)
+         * @param config_len: Length of sealed config
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_initialize(
+            [in] uint8_t chain_id,
+            [in, size=config_len] const uint8_t* config_sealed,
+            size_t config_len
+        );
+        
+        /*
+         * Generate validator key pair inside enclave
+         * Key is sealed to enclave and never leaves
+         * @param pubkey_out: Output buffer for public key (32 bytes for Ed25519, 33 for secp256k1)
+         * @param pubkey_len: Length of pubkey buffer
+         * @param key_type: 0=Ed25519, 1=Secp256k1, 2=Dilithium5
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_generate_validator_key(
+            [out, size=pubkey_len] uint8_t* pubkey_out,
+            size_t pubkey_len,
+            [in] uint8_t key_type
+        );
+        
+        /*
+         * Sign consensus vote inside enclave
+         * @param operation_hash: Hash of the operation being voted on (32 bytes)
+         * @param chain_votes: Bitmap of which chains have approved (for 2-of-3 check)
+         * @param signature_out: Output buffer for signature
+         * @param sig_len: Length of signature buffer (64 for Ed25519/secp256k1, 4595 for Dilithium5)
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_sign_consensus_vote(
+            [in, size=32] const uint8_t* operation_hash,
+            [in] uint8_t chain_votes,
+            [out, size=sig_len] uint8_t* signature_out,
+            size_t sig_len
+        );
+        
+        /*
+         * Verify operation against Lean-proven rules
+         * @param operation_type: Type of operation (deposit, withdraw, swap, emergency)
+         * @param operation_data: Serialized operation data
+         * @param data_len: Length of operation data
+         * @param is_valid: Output flag indicating if operation is valid
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_verify_operation(
+            [in] uint8_t operation_type,
+            [in, size=data_len] const uint8_t* operation_data,
+            size_t data_len,
+            [out] uint8_t* is_valid
+        );
+        
+        /*
+         * Generate SGX remote attestation report
+         * @param user_data: Application-specific data to include (64 bytes max)
+         * @param user_data_len: Length of user data
+         * @param report_out: Output buffer for attestation report
+         * @param report_len: Length of report buffer
+         * @param actual_len: Actual length of generated report
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_generate_attestation(
+            [in, size=user_data_len] const uint8_t* user_data,
+            size_t user_data_len,
+            [out, size=report_len] uint8_t* report_out,
+            size_t report_len,
+            [out] size_t* actual_len
+        );
+        
+        /*
+         * HTLC: Initialize atomic swap
+         * @param hash_lock: SHA256 hash of the secret (32 bytes)
+         * @param time_lock: Unix timestamp for expiry
+         * @param amount: Amount in atomic units
+         * @param recipient: Recipient address (20 bytes for EVM, 32 for Solana/TON)
+         * @param recipient_len: Length of recipient address
+         * @param swap_id_out: Output buffer for generated swap ID (32 bytes)
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_htlc_init(
+            [in, size=32] const uint8_t* hash_lock,
+            [in] uint64_t time_lock,
+            [in] uint64_t amount,
+            [in, size=recipient_len] const uint8_t* recipient,
+            size_t recipient_len,
+            [out, size=32] uint8_t* swap_id_out
+        );
+        
+        /*
+         * HTLC: Claim swap with secret
+         * @param swap_id: ID of the swap (32 bytes)
+         * @param secret: Pre-image that hashes to hash_lock (32 bytes)
+         * @param signature_out: Signed claim authorization
+         * @param sig_len: Signature buffer length
+         * @return: SGX_SUCCESS on success, SGX_ERROR_INVALID_PARAMETER if secret invalid
+         */
+        public sgx_status_t ecall_htlc_claim(
+            [in, size=32] const uint8_t* swap_id,
+            [in, size=32] const uint8_t* secret,
+            [out, size=sig_len] uint8_t* signature_out,
+            size_t sig_len
+        );
+        
+        /*
+         * HTLC: Refund expired swap
+         * @param swap_id: ID of the swap (32 bytes)
+         * @param current_time: Current Unix timestamp
+         * @param signature_out: Signed refund authorization
+         * @param sig_len: Signature buffer length
+         * @return: SGX_SUCCESS on success, SGX_ERROR_INVALID_STATE if not expired
+         */
+        public sgx_status_t ecall_htlc_refund(
+            [in, size=32] const uint8_t* swap_id,
+            [in] uint64_t current_time,
+            [out, size=sig_len] uint8_t* signature_out,
+            size_t sig_len
+        );
+        
+        /*
+         * Vault: Authorize deposit
+         * @param vault_id: Vault identifier (32 bytes)
+         * @param amount: Deposit amount
+         * @param depositor: Depositor address
+         * @param depositor_len: Address length
+         * @param signature_out: Signed deposit authorization
+         * @param sig_len: Signature buffer length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_vault_deposit(
+            [in, size=32] const uint8_t* vault_id,
+            [in] uint64_t amount,
+            [in, size=depositor_len] const uint8_t* depositor,
+            size_t depositor_len,
+            [out, size=sig_len] uint8_t* signature_out,
+            size_t sig_len
+        );
+        
+        /*
+         * Vault: Authorize withdrawal (requires 2-of-3 consensus)
+         * @param vault_id: Vault identifier (32 bytes)
+         * @param amount: Withdrawal amount
+         * @param recipient: Recipient address
+         * @param recipient_len: Address length
+         * @param consensus_proof: Proof of 2-of-3 consensus
+         * @param proof_len: Proof length
+         * @param signature_out: Signed withdrawal authorization
+         * @param sig_len: Signature buffer length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_vault_withdraw(
+            [in, size=32] const uint8_t* vault_id,
+            [in] uint64_t amount,
+            [in, size=recipient_len] const uint8_t* recipient,
+            size_t recipient_len,
+            [in, size=proof_len] const uint8_t* consensus_proof,
+            size_t proof_len,
+            [out, size=sig_len] uint8_t* signature_out,
+            size_t sig_len
+        );
+        
+        /*
+         * Emergency: Initiate recovery (TON quantum-safe enclave only)
+         * @param emergency_type: Type of emergency
+         * @param justification: Reason for emergency
+         * @param justification_len: Justification length
+         * @param delayed_action_out: Sealed delayed action (48-hour timelock)
+         * @param action_len: Action buffer length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_emergency_initiate(
+            [in] uint8_t emergency_type,
+            [in, size=justification_len] const uint8_t* justification,
+            size_t justification_len,
+            [out, size=action_len] uint8_t* delayed_action_out,
+            size_t action_len
+        );
+        
+        /*
+         * Seal data using EGETKEY (MRENCLAVE-based)
+         * @param plaintext: Data to seal
+         * @param plaintext_len: Data length
+         * @param sealed_out: Output buffer for sealed data
+         * @param sealed_len: Sealed buffer length
+         * @param actual_len: Actual sealed data length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_seal_data(
+            [in, size=plaintext_len] const uint8_t* plaintext,
+            size_t plaintext_len,
+            [out, size=sealed_len] uint8_t* sealed_out,
+            size_t sealed_len,
+            [out] size_t* actual_len
+        );
+        
+        /*
+         * Unseal data using EGETKEY
+         * @param sealed: Sealed data
+         * @param sealed_len: Sealed data length
+         * @param plaintext_out: Output buffer for plaintext
+         * @param plaintext_len: Plaintext buffer length
+         * @param actual_len: Actual plaintext length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_unseal_data(
+            [in, size=sealed_len] const uint8_t* sealed,
+            size_t sealed_len,
+            [out, size=plaintext_len] uint8_t* plaintext_out,
+            size_t plaintext_len,
+            [out] size_t* actual_len
+        );
+        
+        /*
+         * Get enclave status and health metrics
+         * @param status_out: Output buffer for JSON status
+         * @param status_len: Buffer length
+         * @param actual_len: Actual status length
+         * @return: SGX_SUCCESS on success
+         */
+        public sgx_status_t ecall_get_status(
+            [out, size=status_len] uint8_t* status_out,
+            size_t status_len,
+            [out] size_t* actual_len
+        );
+    };
+    
+    /* Untrusted functions (called from enclave OUT to untrusted code) */
+    untrusted {
+        /*
+         * Log message from enclave (for debugging, not security-critical)
+         * @param level: Log level (0=debug, 1=info, 2=warn, 3=error)
+         * @param message: Log message
+         * @param len: Message length
+         */
+        void ocall_log(
+            [in] uint8_t level,
+            [in, size=len] const char* message,
+            size_t len
+        );
+        
+        /*
+         * Get current Unix timestamp
+         * @param timestamp: Output timestamp
+         * Note: Enclave should verify timestamps against multiple sources
+         */
+        void ocall_get_timestamp(
+            [out] uint64_t* timestamp
+        );
+        
+        /*
+         * Fetch cross-chain state (for consensus verification)
+         * @param chain_id: Chain to query
+         * @param state_type: Type of state to fetch
+         * @param state_out: Output buffer
+         * @param state_len: Buffer length
+         * @param actual_len: Actual state length
+         * Note: Enclave must cryptographically verify returned state
+         */
+        void ocall_fetch_chain_state(
+            [in] uint8_t chain_id,
+            [in] uint8_t state_type,
+            [out, size=state_len] uint8_t* state_out,
+            size_t state_len,
+            [out] size_t* actual_len
+        );
+        
+        /*
+         * Submit signed transaction to blockchain
+         * @param chain_id: Target chain
+         * @param tx_data: Signed transaction data
+         * @param tx_len: Transaction length
+         * @param tx_hash_out: Output transaction hash
+         */
+        void ocall_submit_transaction(
+            [in] uint8_t chain_id,
+            [in, size=tx_len] const uint8_t* tx_data,
+            size_t tx_len,
+            [out, size=32] uint8_t* tx_hash_out
+        );
+        
+        /*
+         * Request DCAP quote from Quoting Enclave
+         * @param report: SGX report to quote
+         * @param report_len: Report length
+         * @param quote_out: Output quote buffer
+         * @param quote_len: Quote buffer length
+         * @param actual_len: Actual quote length
+         */
+        void ocall_get_dcap_quote(
+            [in, size=report_len] const uint8_t* report,
+            size_t report_len,
+            [out, size=quote_len] uint8_t* quote_out,
+            size_t quote_len,
+            [out] size_t* actual_len
+        );
+    };
+};

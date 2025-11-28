@@ -1,0 +1,64 @@
+[package]
+name = "trinity-shield-enclave"
+version = "1.0.0"
+edition = "2021"
+authors = ["Trinity Protocol Team <chronosvault@chronosvault.org>"]
+license = "MIT"
+description = "Trinity Shield SGX Enclave - Layer 8 of the Mathematical Defense Layer"
+repository = "https://github.com/Chronos-Vault/trinity-shield"
+keywords = ["sgx", "tee", "enclave", "blockchain", "consensus"]
+categories = ["cryptography", "hardware-support"]
+
+[lib]
+name = "trinity_shield_enclave"
+crate-type = ["staticlib"]
+
+[features]
+default = ["sgx"]
+sgx = []
+simulation = []
+
+[dependencies]
+# SGX SDK dependencies (for real SGX builds)
+sgx_types = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview" }
+sgx_tstd = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview" }
+sgx_tcrypto = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview" }
+sgx_tse = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview" }
+sgx_rand = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview" }
+
+[target.'cfg(not(target_env = "sgx"))'.dependencies]
+# For simulation mode testing outside SGX
+sgx_types = { git = "https://github.com/apache/incubator-teaclave-sgx-sdk.git", tag = "v2.0.0-preview", features = ["untrusted"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release.package."*"]
+opt-level = 3
+
+# Build configuration for SGX enclave
+[package.metadata.sgx]
+# Enclave configuration
+enclave-name = "trinity_shield_enclave"
+# Stack size (512KB)
+stack-size = 524288
+# Heap size (16MB)
+heap-size = 16777216
+# Thread number
+thread-num = 16
+# Debug mode (set to false for production!)
+debug = false
+# ISV Product ID
+isv-prod-id = 1
+# ISV Security Version Number
+isv-svn = 1
+
+# Signing configuration
+[package.metadata.sgx.signing]
+# Path to enclave signing key
+key = "enclave_signing_key.pem"
+# Enclave configuration file
+config = "enclave.config.xml"

@@ -145,6 +145,30 @@ cargo tarpaulin --out Html
 
 MIT License - See [LICENSE](LICENSE)
 
+## Deployed Contracts
+
+### Arbitrum Sepolia (Testnet)
+| Contract | Address |
+|----------|---------|
+| TrinityShieldVerifier | `0x2971c0c3139F89808F87b2445e53E5Fb83b6A002` |
+| TrinityConsensusVerifier | `0x59396D58Fa856025bD5249E342729d5550Be151C` |
+
+**Explorer:** [View on Arbiscan](https://sepolia.arbiscan.io/address/0x2971c0c3139F89808F87b2445e53E5Fb83b6A002)
+
+### Configuration
+- Attestation Validity: 24 hours
+- Max Quote Age: 10 minutes
+- Approved Enclaves: v1.0.0, v1.0.1-arbitrum, v1.0.1-solana, v1.0.1-ton
+
+## Roadmap
+
+See [TRINITY_SHIELD_ROADMAP.md](docs/TRINITY_SHIELD_ROADMAP.md) for development phases:
+
+- **Phase 1** ✅ Foundation (SGX enclave, attestation library)
+- **Phase 2** ✅ Integration (deployment, configuration)
+- **Phase 3** 🔄 Production (hardware, security audit)
+- **Phase 4** 📋 Expansion (AMD SEV, community validators)
+
 ## Links
 
 - Website: https://chronosvault.org

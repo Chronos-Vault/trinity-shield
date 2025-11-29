@@ -397,7 +397,32 @@ pub struct AttestationQuote {
     /// MRSIGNER value
     pub mrsigner: [u8; 32],
     /// User data included in quote
+    /// IMPORTANT: First 32 bytes MUST contain validator address for on-chain verification
+    /// Layout: [validator_address_padded(32)] [chain_id(1)] [nonce(8)] [reserved(23)]
+    /// The Solidity contract verifies: reportData == bytes32(uint256(uint160(validator)))
     pub report_data: [u8; 64],
+}
+
+impl AttestationQuote {
+    /// Create report data with validator binding for on-chain verification
+    /// This ensures TrinityShieldVerifierV2.sol can verify the attestation
+    pub fn create_report_data(validator_address: [u8; 20], chain_id: u8, nonce: u64) -> [u8; 64] {
+        let mut data = [0u8; 64];
+        // First 32 bytes: validator address right-padded (matches Solidity bytes32(uint256(uint160(addr))))
+        data[12..32].copy_from_slice(&validator_address);
+        // Byte 32: chain ID
+        data[32] = chain_id;
+        // Bytes 33-40: nonce (little-endian)
+        data[33..41].copy_from_slice(&nonce.to_le_bytes());
+        data
+    }
+    
+    /// Extract validator address from report data
+    pub fn extract_validator_address(&self) -> [u8; 20] {
+        let mut addr = [0u8; 20];
+        addr.copy_from_slice(&self.report_data[12..32]);
+        addr
+    }
 }
 
 /// Full attestation report

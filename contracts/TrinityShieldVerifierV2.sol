@@ -2,8 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /**
  * @title TrinityShieldVerifier V2
@@ -19,6 +20,7 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  */
 contract TrinityShieldVerifierV2 is AccessControl, ReentrancyGuard {
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     // Roles
     bytes32 public constant TRUSTED_RELAYER_ROLE = keccak256("TRUSTED_RELAYER");

@@ -581,10 +581,10 @@ sudo systemctl restart trinity-shield
 
 ## Support
 
-- **Documentation**: [github.com/Chronos-Vault/trinity-shield/docs](https://github.com/Chronos-Vault/trinity-shield/docs)
+- **Documentation**: [github.com/Chronos-Vault/trinity-shield/docs]([https://github.com/Chronos-Vault/trinity-shield/docs](https://github.com/Chronos-Vault/trinity-shield/tree/main/docs))
 - **Issues**: [github.com/Chronos-Vault/trinity-shield/issues](https://github.com/Chronos-Vault/trinity-shield/issues)
-- **Email**: validators@chronosvault.org
+- **Email**: chronosvault@chronosvault.org
 
 ---
 
-*Trinity Protocol v3.5.20 - "Mathematically Proven. Hardware Protected."*
+*Trinity Protocol v3.5.20 "Mathematically Proven. Hardware Protected."*

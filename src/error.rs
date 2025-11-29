@@ -151,6 +151,30 @@ pub enum ShieldError {
         /// Which theorem was violated
         theorem: String,
     },
+    
+    /// IPC communication error
+    IpcError(String),
+    
+    /// Quantum crypto feature disabled
+    QuantumFeatureDisabled,
+    
+    /// Invalid timestamp (for SGX time updates)
+    InvalidTimestamp(String),
+    
+    /// Feature not enabled in this build
+    FeatureDisabled(String),
+    
+    /// Invalid key format or type
+    InvalidKey(String),
+    
+    /// Invalid signature format
+    InvalidSignature(String),
+    
+    /// Invalid ciphertext format
+    InvalidCiphertext(String),
+    
+    /// Invalid input data
+    InvalidInput(String),
 }
 
 impl fmt::Display for ShieldError {
@@ -262,7 +286,43 @@ impl fmt::Display for ShieldError {
             Self::LeanProofViolation { theorem } => {
                 write!(f, "Lean proof violation: {}", theorem)
             }
+            Self::IpcError(msg) => {
+                write!(f, "IPC error: {}", msg)
+            }
+            Self::QuantumFeatureDisabled => {
+                write!(f, "Quantum cryptography feature not enabled")
+            }
+            Self::InvalidTimestamp(msg) => {
+                write!(f, "Invalid timestamp: {}", msg)
+            }
+            Self::FeatureDisabled(feature) => {
+                write!(f, "Feature '{}' not enabled in this build", feature)
+            }
+            Self::InvalidKey(msg) => {
+                write!(f, "Invalid key: {}", msg)
+            }
+            Self::InvalidSignature(msg) => {
+                write!(f, "Invalid signature: {}", msg)
+            }
+            Self::InvalidCiphertext(msg) => {
+                write!(f, "Invalid ciphertext: {}", msg)
+            }
+            Self::InvalidInput(msg) => {
+                write!(f, "Invalid input: {}", msg)
+            }
         }
+    }
+}
+
+impl From<serde_json::Error> for ShieldError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::InvalidInput(e.to_string())
+    }
+}
+
+impl From<hex::FromHexError> for ShieldError {
+    fn from(e: hex::FromHexError) -> Self {
+        Self::InvalidInput(e.to_string())
     }
 }
 

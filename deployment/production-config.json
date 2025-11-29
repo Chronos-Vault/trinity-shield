@@ -1,0 +1,146 @@
+{
+  "$schema": "https://chronosvault.org/schemas/trinity-shield-config-v1.json",
+  "version": "3.5.20",
+  "environment": "production",
+  "network": "arbitrum-mainnet",
+  
+  "validators": {
+    "arbitrum": {
+      "chainId": 1,
+      "address": "0x3A92fD5b39Ec9598225DB5b9f15af0523445E3d8",
+      "teeType": "sgx",
+      "hardware": {
+        "cpu": "Intel Xeon Scalable (Ice Lake+)",
+        "sgxVersion": "SGX2",
+        "enclaveSize": "256MB",
+        "dcapSupport": true
+      },
+      "attestation": {
+        "refreshInterval": "6h",
+        "validityPeriod": "24h",
+        "warningThreshold": "2h",
+        "criticalThreshold": "30m"
+      }
+    },
+    "solana": {
+      "chainId": 2,
+      "address": "0x2554324ae222673F4C36D1Ae0E58C19fFFf69cd5",
+      "teeType": "sgx",
+      "hardware": {
+        "cpu": "Intel Xeon Scalable (Ice Lake+)",
+        "sgxVersion": "SGX2",
+        "enclaveSize": "256MB",
+        "dcapSupport": true
+      },
+      "attestation": {
+        "refreshInterval": "4h",
+        "validityPeriod": "24h",
+        "warningThreshold": "2h",
+        "criticalThreshold": "30m"
+      }
+    },
+    "ton": {
+      "chainId": 3,
+      "address": "0x9662e22D1f037C7EB370DD0463c597C6cd69B4c4",
+      "teeType": "sev-snp",
+      "hardware": {
+        "cpu": "AMD EPYC (Milan+)",
+        "sevVersion": "SNP",
+        "memoryEncryption": true,
+        "quantumResistant": true
+      },
+      "attestation": {
+        "refreshInterval": "6h",
+        "validityPeriod": "24h",
+        "warningThreshold": "2h",
+        "criticalThreshold": "30m"
+      },
+      "quantumConfig": {
+        "kemAlgorithm": "ML-KEM-1024",
+        "signatureAlgorithm": "CRYSTALS-Dilithium-5",
+        "keyRotation": "30d"
+      }
+    }
+  },
+  
+  "contracts": {
+    "arbitrum": {
+      "trinityShieldVerifier": "0x2971c0c3139F89808F87b2445e53E5Fb83b6A002",
+      "trinityConsensusVerifier": "0x59396D58Fa856025bD5249E342729d5550Be151C",
+      "emergencyMultiSig": "0x066A39Af76b625c1074aE96ce9A111532950Fc41",
+      "chronosVault": "0xAE408eC592f0f865bA0012C480E8867e12B4F32D"
+    }
+  },
+  
+  "relayers": {
+    "primary": {
+      "address": "0x66e5046D136E82d17cbeB2FfEa5bd5205D962906",
+      "endpoint": "https://relayer.chronosvault.org",
+      "healthCheck": "/health"
+    },
+    "backup": [
+      {
+        "address": "0x0000000000000000000000000000000000000000",
+        "endpoint": "https://relayer-backup.chronosvault.org",
+        "healthCheck": "/health"
+      }
+    ]
+  },
+  
+  "monitoring": {
+    "alerting": {
+      "enabled": true,
+      "channels": ["email", "webhook", "pagerduty"],
+      "escalation": {
+        "warning": ["email"],
+        "critical": ["email", "webhook", "pagerduty"],
+        "emergency": ["all"]
+      }
+    },
+    "metrics": {
+      "attestationLatency": true,
+      "consensusTime": true,
+      "validatorUptime": true,
+      "enclaveHealth": true
+    },
+    "endpoints": {
+      "prometheus": "/metrics",
+      "health": "/health",
+      "status": "/status"
+    }
+  },
+  
+  "security": {
+    "attestationValidityPeriod": 86400,
+    "maxQuoteAge": 600,
+    "requireAllValidatorsAttested": false,
+    "minimumAttestedValidators": 2,
+    "emergencyContactHours": 24
+  },
+  
+  "enclaves": {
+    "approved": [
+      {
+        "version": "v1.0.0",
+        "mrenclave": "0xa1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+        "description": "Initial production enclave"
+      },
+      {
+        "version": "v1.0.1-arbitrum",
+        "mrenclave": "0xf0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d",
+        "description": "Arbitrum-optimized enclave"
+      },
+      {
+        "version": "v1.0.1-solana",
+        "mrenclave": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "description": "Solana high-frequency monitoring enclave"
+      },
+      {
+        "version": "v1.0.1-ton",
+        "mrenclave": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "description": "TON quantum-resistant enclave"
+      }
+    ],
+    "mrsigner": "0x9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba"
+  }
+}

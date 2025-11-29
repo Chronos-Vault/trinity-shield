@@ -56,6 +56,10 @@
 //! 
 //! - `std` - Standard library support (default)
 //! - `sgx` - Intel SGX enclave support
+//! - `sev` - AMD SEV-SNP support
+//! - `quantum` - Post-quantum cryptography (ML-KEM-1024, Dilithium-5)
+//! - `ton` - TON validator (enables quantum features)
+//! - `ipc` - IPC interface for relayer communication
 //! - `simulation` - Simulation mode for testing
 //! 
 //! ---
@@ -84,6 +88,10 @@ pub mod error;
 pub mod types;
 pub mod config;
 pub mod orchestrator;
+#[cfg(feature = "ipc")]
+pub mod ipc;
+#[cfg(feature = "quantum")]
+pub mod quantum;
 
 pub use error::{ShieldError, ShieldResult};
 pub use types::*;
@@ -96,6 +104,11 @@ pub use orchestrator::{
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
+
+/// Global timestamp source for SGX environments
+/// In SGX mode, this is updated via trusted time service
+#[cfg(feature = "sgx")]
+static SGX_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 
 /// Trinity Shield - Main security orchestrator
 /// 
@@ -117,7 +130,7 @@ pub struct TrinityShield {
     /// Consensus engine for 2-of-3 voting
     consensus: consensus::ConsensusEngine,
     
-    /// Attestation generator for SGX quotes
+    /// Attestation generator for SGX/SEV quotes
     attestation: attestation::AttestationService,
     
     /// Operation counter for nonce management
@@ -125,6 +138,10 @@ pub struct TrinityShield {
     
     /// Shield initialization timestamp
     initialized_at: u64,
+    
+    /// Quantum-resistant signer (TON validator)
+    #[cfg(feature = "quantum")]
+    quantum_signer: Option<quantum::QuantumSigner>,
 }
 
 impl TrinityShield {
@@ -144,12 +161,24 @@ impl TrinityShield {
         // Initialize cryptographic subsystem
         crypto::init()?;
         
+        // Initialize SGX trusted time if in enclave
+        #[cfg(feature = "sgx")]
+        init_sgx_time()?;
+        
         // Create shield layers
         let perimeter = perimeter::PerimeterShield::new(&config.perimeter)?;
         let application = application::ApplicationShield::new(&config.application)?;
         let data = data::DataShield::new(&config.data)?;
         let consensus = consensus::ConsensusEngine::new(&config.consensus)?;
         let attestation = attestation::AttestationService::new(&config.attestation)?;
+        
+        // Initialize quantum signer for TON validator
+        #[cfg(feature = "quantum")]
+        let quantum_signer = if config.consensus.chain_id == ChainId::TON {
+            Some(quantum::QuantumSigner::new()?)
+        } else {
+            None
+        };
         
         let shield = Self {
             config,
@@ -160,6 +189,8 @@ impl TrinityShield {
             attestation,
             operation_counter: AtomicU64::new(0),
             initialized_at: current_timestamp(),
+            #[cfg(feature = "quantum")]
+            quantum_signer,
         };
         
         // Perform initial attestation to verify enclave integrity
@@ -226,6 +257,7 @@ impl TrinityShield {
     /// - Vote signed with enclave-protected key
     /// - Includes fresh attestation proof
     /// - Enforces Lean-proven consensus rules
+    /// - Uses quantum-resistant signature for TON chain
     pub fn sign_vote(&self, operation: &Operation) -> ShieldResult<SignedVote> {
         // Verify operation against Lean-proven rules
         self.consensus.verify_operation_rules(operation)?;
@@ -233,8 +265,8 @@ impl TrinityShield {
         // Create vote with enclave signature
         let vote = self.consensus.create_vote(operation)?;
         
-        // Sign with hardware-protected key
-        let signature = self.application.sign_with_enclave_key(&vote.to_bytes())?;
+        // Sign with appropriate key based on chain
+        let signature = self.sign_vote_bytes(&vote.to_bytes())?;
         
         // Include attestation for on-chain verification
         let attestation = self.attestation.generate_quote(&vote.hash())?;
@@ -247,10 +279,26 @@ impl TrinityShield {
         })
     }
     
+    /// Sign vote bytes with appropriate signature scheme
+    fn sign_vote_bytes(&self, data: &[u8]) -> ShieldResult<Signature> {
+        #[cfg(feature = "quantum")]
+        {
+            // Use Dilithium-5 for TON validator
+            if self.config.consensus.chain_id == ChainId::TON {
+                if let Some(ref signer) = self.quantum_signer {
+                    return signer.sign(data);
+                }
+            }
+        }
+        
+        // Default: Ed25519/Secp256k1 for Arbitrum/Solana
+        self.application.sign_with_enclave_key(data)
+    }
+    
     /// Generate remote attestation report
     /// 
     /// # Returns
-    /// * `ShieldResult<AttestationReport>` - SGX quote for on-chain verification
+    /// * `ShieldResult<AttestationReport>` - SGX/SEV quote for on-chain verification
     pub fn generate_attestation(&self) -> ShieldResult<AttestationReport> {
         self.attestation.generate_full_report()
     }
@@ -282,6 +330,12 @@ impl TrinityShield {
         self.application.public_key()
     }
     
+    /// Get quantum-resistant public key (TON only)
+    #[cfg(feature = "quantum")]
+    pub fn quantum_public_key(&self) -> Option<&quantum::DilithiumPublicKey> {
+        self.quantum_signer.as_ref().map(|s| s.public_key())
+    }
+    
     /// Get the chain ID this enclave is configured for
     pub fn chain_id(&self) -> ChainId {
         self.config.consensus.chain_id
@@ -303,6 +357,23 @@ impl TrinityShield {
         }
     }
     
+    /// Update SGX timestamp from trusted source
+    /// 
+    /// In SGX mode, time must be provided by a trusted source since
+    /// the enclave cannot access system time directly.
+    #[cfg(feature = "sgx")]
+    pub fn update_trusted_time(&self, timestamp: u64) -> ShieldResult<()> {
+        // Verify timestamp is monotonically increasing
+        let current = SGX_TIMESTAMP.load(Ordering::Acquire);
+        if timestamp <= current {
+            return Err(ShieldError::InvalidTimestamp(
+                "Timestamp must be monotonically increasing".into()
+            ));
+        }
+        SGX_TIMESTAMP.store(timestamp, Ordering::Release);
+        Ok(())
+    }
+    
     // === Private Methods ===
     
     fn next_operation_id(&self) -> u64 {
@@ -321,13 +392,43 @@ impl TrinityShield {
             }
         }
         
+        // In SEV mode, verify MEASUREMENT matches expected value
+        #[cfg(feature = "sev")]
+        {
+            let report = self.attestation.get_sev_report()?;
+            if report.measurement != self.config.attestation.expected_sev_measurement {
+                return Err(ShieldError::AttestationFailed(
+                    "SEV MEASUREMENT mismatch - VM may be compromised".into()
+                ));
+            }
+        }
+        
         Ok(())
     }
 }
 
+/// Initialize SGX trusted time service
+#[cfg(feature = "sgx")]
+fn init_sgx_time() -> ShieldResult<()> {
+    // Request initial time from Intel trusted time service
+    // This will be updated periodically by the relayer
+    SGX_TIMESTAMP.store(0, Ordering::Release);
+    Ok(())
+}
+
 /// Get current Unix timestamp in seconds
-fn current_timestamp() -> u64 {
-    #[cfg(feature = "std")]
+/// 
+/// In standard mode, uses system time.
+/// In SGX mode, uses trusted time updated by relayer.
+/// In SEV mode, uses system time (SEV allows time access).
+pub fn current_timestamp() -> u64 {
+    #[cfg(feature = "sgx")]
+    {
+        // In SGX, use the trusted timestamp updated by relayer
+        SGX_TIMESTAMP.load(Ordering::Acquire)
+    }
+    
+    #[cfg(all(feature = "std", not(feature = "sgx")))]
     {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -335,9 +436,9 @@ fn current_timestamp() -> u64 {
             .as_secs()
     }
     
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), not(feature = "sgx")))]
     {
-        // In no_std, use a monotonic counter or external time source
+        // In pure no_std without SGX, return 0 (should not happen in production)
         0
     }
 }
@@ -362,5 +463,13 @@ mod tests {
         let id2 = shield.next_operation_id();
         
         assert_eq!(id1 + 1, id2);
+    }
+    
+    #[test]
+    fn test_timestamp() {
+        let ts = current_timestamp();
+        // In test mode with std, should return a real timestamp
+        #[cfg(feature = "std")]
+        assert!(ts > 0);
     }
 }
